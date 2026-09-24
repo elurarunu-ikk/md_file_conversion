@@ -38,6 +38,7 @@ python -m PyInstaller --clean --noconfirm --onefile --windowed ^
     --hidden-import bs4 ^
     --hidden-import openpyxl ^
     --hidden-import pypdf ^
+    --hidden-import cryptography ^
     --exclude-module pandas ^
     --exclude-module numpy ^
     md_converter_app.py

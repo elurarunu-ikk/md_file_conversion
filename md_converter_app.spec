@@ -15,7 +15,6 @@ a = Analysis(
         "bs4",
         "openpyxl",
         "pypdf",
-        "PyPDF2",
     ],
     hookspath=[],
     hooksconfig={},
