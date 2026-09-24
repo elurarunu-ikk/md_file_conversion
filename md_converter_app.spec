@@ -1,3 +1,4 @@
+# macOS ONLY - for Windows use build_windows.bat
 # -*- mode: python ; coding: utf-8 -*-
 
 block_cipher = None
@@ -11,7 +12,7 @@ a = Analysis(
     hiddenimports=[
         "docx",
         "markdownify",
-        "pandas",
+        "bs4",
         "openpyxl",
         "pypdf",
         "PyPDF2",
@@ -19,7 +20,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=["pandas", "numpy"],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
