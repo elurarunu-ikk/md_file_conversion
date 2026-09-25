@@ -300,6 +300,16 @@ def convert_file_to_markdown(file_path: Path) -> str:
 FileEntry = Union[Path, str, Tuple[Path, Optional[Path]]]
 
 
+def display_path(path: Union[Path, str]) -> str:
+    """Path as shown to the user: native separators (backslashes on Windows)."""
+    return os.path.normpath(str(path))
+
+
+def plural(count: int, noun: str = "file") -> str:
+    """Count with the right noun form, e.g. 1 file, 0 files, 3 files."""
+    return f"{count} {noun}{'' if count == 1 else 's'}"
+
+
 def is_supported_file(path: Path) -> bool:
     """Supported extension, and not an Office lock/temp file or hidden file."""
     return path.suffix.lower() in TARGET_EXTENSIONS and not path.name.startswith(SKIP_PREFIXES)
@@ -496,6 +506,7 @@ class FileToMarkdownApp(tk.Tk):
         self.minsize(700, 560)
 
         self.selection = FileSelection()
+        self.last_output_dir: Optional[Path] = None
         self.output_var = tk.StringVar()
         self.status_var = tk.StringVar(value="Ready")
         self.count_var = tk.StringVar(value="0 files selected")
@@ -548,7 +559,11 @@ class FileToMarkdownApp(tk.Tk):
         )
 
         self.run_button = ttk.Button(main, text="Convert files", command=self.start_conversion)
-        self.run_button.grid(row=5, column=0, columnspan=3, pady=(10, 8), sticky="ew")
+        self.run_button.grid(row=5, column=0, columnspan=2, pady=(10, 8), sticky="ew")
+        self.open_output_button = ttk.Button(
+            main, text="Open output folder", command=self.open_output_folder, state="disabled"
+        )
+        self.open_output_button.grid(row=5, column=2, padx=(10, 0), pady=(10, 8), sticky="ew")
 
         self.progress_bar = ttk.Progressbar(main, mode="determinate", maximum=1, value=0)
         self.progress_bar.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(0, 12))
@@ -586,9 +601,8 @@ class FileToMarkdownApp(tk.Tk):
     def _refresh_file_list(self) -> None:
         self.file_listbox.delete(0, "end")
         for path, _ in self.selection.entries:
-            self.file_listbox.insert("end", str(path))
-        count = len(self.selection)
-        self.count_var.set(f"{count} file{'' if count == 1 else 's'} selected")
+            self.file_listbox.insert("end", display_path(path))
+        self.count_var.set(f"{plural(len(self.selection))} selected")
 
     def add_paths(self, paths: Iterable[str]) -> None:
         """Add files and/or folders (dialogs, command line, drag-and-drop onto the exe)."""
@@ -599,20 +613,20 @@ class FileToMarkdownApp(tk.Tk):
             if path.is_dir():
                 added, duplicates = self.selection.add_folder(path)
                 note = f" ({duplicates} already in the list)" if duplicates else ""
-                self.append_log(f"Added {added} file(s) from folder {path.resolve()}{note}")
+                self.append_log(f"Added {plural(added)} from folder {display_path(path.resolve())}{note}")
                 if added and prefill_from is None:
                     prefill_from = path.resolve()
             else:
                 reason = self.selection.add_file(path)
                 if reason:
-                    self.append_log(f"Skipped {path}: {reason}")
+                    self.append_log(f"Skipped {display_path(path)}: {reason}")
                 elif prefill_from is None:
                     prefill_from = path.resolve().parent
 
         self._refresh_file_list()
 
         if prefill_from is not None and not self.output_var.get().strip():
-            default_output = str(prefill_from / "markdown_output")
+            default_output = display_path(prefill_from / "markdown_output")
             self.output_var.set(default_output)
             self.append_log(f"Output folder set to: {default_output}")
 
@@ -645,6 +659,7 @@ class FileToMarkdownApp(tk.Tk):
     def choose_output_folder(self) -> None:
         folder = filedialog.askdirectory(title="Select output folder")
         if folder:
+            folder = display_path(folder)  # the dialog returns D:/like/this
             self.output_var.set(folder)
             self.append_log(f"Output folder selected: {folder}")
 
@@ -671,18 +686,22 @@ class FileToMarkdownApp(tk.Tk):
             messagebox.showerror("Output required", "Please select an output folder.")
             return
 
-        output_path = Path(output_dir).expanduser()
+        output_path = Path(display_path(Path(output_dir).expanduser()))
+        self.output_var.set(display_path(output_path))  # typed paths may use "/"
         try:
             output_path.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            messagebox.showerror("Invalid output", f"Cannot create the output folder {output_path}: {exc}")
+            messagebox.showerror(
+                "Invalid output", f"Cannot create the output folder {display_path(output_path)}: {exc}"
+            )
             return
 
         # Snapshot the list so edits during conversion don't affect this run.
         entries = list(self.selection.entries)
-        self.set_status(f"Converting {len(entries)} file(s)...")
-        self.append_log(f"Converting {len(entries)} file(s) into {output_path}")
+        self.set_status(f"Converting {plural(len(entries))}...")
+        self.append_log(f"Converting {plural(len(entries))} into {display_path(output_path)}")
         self.run_button.config(state="disabled")
+        self.open_output_button.config(state="disabled")
         self.progress_bar.configure(maximum=len(entries), value=0)
 
         thread = threading.Thread(
@@ -703,9 +722,10 @@ class FileToMarkdownApp(tk.Tk):
                 progress=lambda message: self.after(0, self.on_progress, message),
             )
             completed_summary = (
-                f"Completed: {stats['processed']} files converted, "
-                f"{stats['errors']} files failed. Details are logged in {log_path}."
+                f"Completed: {plural(stats['processed'])} converted, "
+                f"{plural(stats['errors'])} failed. Details are logged in {display_path(log_path)}."
             )
+            self.after(0, self._conversion_finished, output_dir)
             self.after(0, self.set_status, completed_summary)
             self.after(0, self.append_log, completed_summary)
             self.after(0, messagebox.showinfo, "Conversion complete", completed_summary)
@@ -720,6 +740,24 @@ class FileToMarkdownApp(tk.Tk):
             for handler in list(logging.getLogger("md_converter").handlers):
                 handler.close()
             self.after(0, lambda: self.run_button.config(state="normal"))
+
+    def _conversion_finished(self, output_dir: Path) -> None:
+        self.last_output_dir = output_dir
+        self.open_output_button.config(state="normal")
+
+    def open_output_folder(self) -> None:
+        if self.last_output_dir is None:
+            return
+        folder = display_path(self.last_output_dir)
+        try:
+            if hasattr(os, "startfile"):
+                os.startfile(folder)  # Windows: opens in File Explorer
+            else:  # pragma: no cover - macOS/Linux builds
+                import subprocess
+
+                subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", folder])
+        except OSError as exc:
+            messagebox.showerror("Cannot open folder", f"Could not open {folder}: {exc}")
 
 
 if __name__ == "__main__":
