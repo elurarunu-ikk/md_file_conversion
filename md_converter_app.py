@@ -383,7 +383,7 @@ def convert_files(
     Files are processed in sorted order so output names stay stable between runs.
 
     If given, progress is called once per file with a line such as
-    "[3/10] OK     sub\\report.docx" or "[4/10] FAILED a.pdf -> reason".
+    "[3/10] OK     D:\\docs\\sub\\report.docx" or "[4/10] FAILED D:\\docs\\a.pdf -> reason".
     """
     output_dir = Path(output_dir).expanduser().resolve()
 
@@ -404,7 +404,7 @@ def convert_files(
     total = len(entries)
 
     for index, (file_path, base_dir) in enumerate(entries, start=1):
-        label = file_path.relative_to(base_dir) if base_dir is not None else file_path
+        label = display_path(file_path)
         try:
             # Reserve the name before converting, so a file that fails this
             # time doesn't shift the names of the others on the next run.
